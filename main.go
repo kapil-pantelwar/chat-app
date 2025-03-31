@@ -81,6 +81,8 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
             cs.Broadcast([]byte(fmt.Sprintf("%s left the chat",username)), websocket.TextMessage,client)
             return
         }
+        log.Printf("Received from %s: %d bytes (type: %d)",username,len(msg),msgType)
+  if msgType == websocket.TextMessage {
         msgStr := string(msg)
         log.Printf("Received from %s: %s", username, msgStr)
           
@@ -99,6 +101,10 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
         }else {
         fullMsg := []byte(fmt.Sprintf("%s: %s", username,msg))
         cs.Broadcast(fullMsg, msgType, client)}
+      }else if msgType == websocket.BinaryMessage {
+        fullMsg := append([]byte(fmt.Sprintf("%s sent an image: |", username)),msg...)
+        cs.Broadcast(fullMsg,websocket.BinaryMessage,client)
+      }
     }
 }
 
@@ -114,7 +120,7 @@ func (cs *ChatServer) Broadcast(msg []byte, msgType int, sender *Client) {
         if err := client.conn.WriteMessage(msgType,msg); err != nil {
           log.Println("Broadcast error:", err)
           client.conn.Close()
-          delete(cs.clients,client)
+          cs.removeClient(client)
         }
     }
 }
@@ -131,7 +137,7 @@ func (cs *ChatServer) sendPrivateMessage(sender *Client, targetUsername, msg str
   if err := target.conn.WriteMessage(websocket.TextMessage, pm); err != nil {
     log.Println("Private message error:", err)
     target.conn.Close()
-    delete(cs.clients,target)
+    cs.removeClient(target)
   }
   sender.conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("[PM to %s]: %s",targetUsername,msg)))
 }
