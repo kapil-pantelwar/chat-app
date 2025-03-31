@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Chat App</title>
+    <style>
+        #chat { border: 1px solid #ccc; padding: 10px; max-height: 300px; overflow-y: auto; }
+        p { margin: 5px 0; }
+        .system { color: blue; }
+        .error { color: red; }
+        .typing { color: gray; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div>
+        <input id="msg" type="text" placeholder="Type a message or /pm <user> <msg>" autofocus>
+        <button onclick="sendMessage()">Send</button>
+    </div>
+    <div id="chat"></div>
+
+    <script>
+        const ws = new WebSocket("ws://localhost:8080/ws");
+        const chatDiv = document.getElementById("chat");
+        const msgInput = document.getElementById("msg");
+        let username;
+        let isTyping = false;
+        let typingTimeout;
+
+        ws.onopen = () => {
+            username = prompt("Enter your username:") || "Anonymous";
+            ws.send(username);
+            appendMessage("Connected as " + username, "system");
+            msgInput.focus();
+        };
+
+        ws.onmessage = (event) => {
+            const text = event.data;
+            if (text.includes("is typing...") || text.includes("stopped typing")) {
+                updateTypingIndicator(text);
+            } else {
+                appendMessage(text);
+            }
+        };
+        ws.onerror = () => appendMessage("Connection error!", "error");
+        ws.onclose = () => appendMessage("Disconnected.", "error");
+
+        function appendMessage(text, type = "message") {
+            const p = document.createElement("p");
+            p.textContent = text;
+            p.className = type;
+            if (type === "message" && text.startsWith(username + ": ")) {
+                p.style.color = "green";
+            }
+            chatDiv.appendChild(p);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        function updateTypingIndicator(text) {
+            const usernameTyping = text.split(" ")[0];
+            const isTypingNow = text.includes("is typing...");
+            const existing = Array.from(chatDiv.children).find(p => 
+                p.className === "typing" && p.textContent.includes(usernameTyping)
+            );
+            if (isTypingNow && !existing) {
+                appendMessage(text, "typing");
+            } else if (!isTypingNow && existing) {
+                chatDiv.removeChild(existing);
+            }
+        }
+
+        function sendMessage() {
+            const msg = msgInput.value.trim();
+            if (msg && ws.readyState === WebSocket.OPEN) {
+                ws.send(msg);
+                clearTyping();
+                if (!msg.startsWith("/pm ")) {
+                    appendMessage(username + ": " + msg);
+                }
+                msgInput.value = "";
+            }
+        }
+
+        function startTyping() {
+            if (!isTyping && ws.readyState === WebSocket.OPEN) {
+                ws.send("/typing");
+                isTyping = true;
+            }
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(clearTyping, 2000); // Stop after 2s pause
+        }
+
+        function clearTyping() {
+            if (isTyping && ws.readyState === WebSocket.OPEN) {
+                ws.send("/stoptyping");
+                isTyping = false;
+            }
+            clearTimeout(typingTimeout);
+        }
+
+        msgInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendMessage();
+            else startTyping();
+        });
+
+        msgInput.addEventListener("input", startTyping);
+    </script>
+</body>
+</html>
