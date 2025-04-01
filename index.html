@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Chat App</title>
+    <style>
+        #chat { border: 1px solid #ccc; padding: 10px; max-height: 400px; overflow-y: auto; }
+        p { margin: 5px 0; }
+        .system { color: blue; }
+        .error { color: red; }
+        .typing { color: gray; font-style: italic; }
+        img { max-width: 200px; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <div>
+        <input id="msg" type="text" placeholder="Type a message or /pm <user> <msg>" autofocus>
+        <button onclick="sendMessage()">Send</button>
+        <input id="image" type="file" accept="image/*" onchange="sendImage()">
+    </div>
+    <div id="chat"></div>
+
+    <script>
+        const ws = new WebSocket("wss://chat-app-c5gv.onrender.com/ws");
+        ws.binaryType = "arraybuffer"; // Receive binary as ArrayBuffer
+        const chatDiv = document.getElementById("chat");
+        const msgInput = document.getElementById("msg");
+        let username;
+        let isTyping = false;
+        let typingTimeout;
+
+        ws.onopen = () => {
+            username = prompt("Enter your username:") || "Anonymous";
+            ws.send(username);
+            appendMessage("Connected as " + username, "system");
+            msgInput.focus();
+        };
+
+        ws.onmessage = (event) => {
+            if (typeof event.data === "string") {
+                const text = event.data;
+                if (text.includes("is typing...") || text.includes("stopped typing")) {
+                    updateTypingIndicator(text);
+                } else {
+                    appendMessage(text);
+                }
+            } else {
+                const binary = new Uint8Array(event.data);
+                const textDecoder = new TextDecoder();
+                const fullText = textDecoder.decode(binary); 
+                const delimiterIndex = fullText.indexOf("|");
+                if(delimiterIndex !== -1){
+                    const prefix = fullText.slice(0,delimiterIndex);
+                    const imageData = binary.slice(delimiterIndex+1);
+                    const blob = new Blob([imageData], {type: "image/jpeg"});
+                    const url = URL.createObjectURL(blob);
+                    appendImage(prefix,url);
+                }else {
+                    appendMessage("Error: Could not parse image data","error");
+                }
+            }
+        };
+        ws.onerror = () => appendMessage("Connection error!", "error");
+        ws.onclose = () => appendMessage("Disconnected.", "error");
+
+        function appendMessage(text, type = "message") {
+            const p = document.createElement("p");
+            p.textContent = text;
+            p.className = type;
+            if (type === "message" && text.startsWith(username + ": ")) {
+                p.style.color = "green";
+            }
+            chatDiv.appendChild(p);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        function appendImage(text, url) {
+            const p = document.createElement("p");
+            p.textContent = text;
+            const img = document.createElement("img");
+            img.src = url;
+            p.appendChild(img);
+            chatDiv.appendChild(p);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        function updateTypingIndicator(text) {
+            const usernameTyping = text.split(" ")[0];
+            const isTypingNow = text.includes("is typing...");
+            const existing = Array.from(chatDiv.children).find(p => 
+                p.className === "typing" && p.textContent.includes(usernameTyping)
+            );
+            if (isTypingNow && !existing) {
+                appendMessage(text, "typing");
+            } else if (!isTypingNow && existing) {
+                chatDiv.removeChild(existing);
+            }
+        }
+
+        function sendMessage() {
+            const msg = msgInput.value.trim();
+            if (msg && ws.readyState === WebSocket.OPEN) {
+                ws.send(msg);
+                clearTyping();
+                if (!msg.startsWith("/pm ")) {
+                    appendMessage(username + ": " + msg);
+                }
+                msgInput.value = "";
+            }
+        }
+
+        function sendImage() {
+            const fileInput = document.getElementById("image");
+            const file = fileInput.files[0];
+            if (file && ws.readyState === WebSocket.OPEN) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    ws.send(reader.result); // ArrayBuffer
+                };
+                reader.readAsArrayBuffer(file);
+                fileInput.value = ""; // Clear input
+            }
+        }
+
+        function clearTyping() {
+            if (isTyping && ws.readyState === WebSocket.OPEN) {
+                ws.send("/stoptyping");
+                isTyping = false;
+            }
+            clearTimeout(typingTimeout);
+        }
+
+        function handleTyping() {
+            if (msgInput.value.trim() && !isTyping && ws.readyState === WebSocket.OPEN) {
+                ws.send("/typing");
+                isTyping = true;
+            }
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                if (isTyping && ws.readyState === WebSocket.OPEN) {
+                    ws.send("/stoptyping");
+                    isTyping = false;
+                }
+            }, 2000);
+        }
+
+        msgInput.addEventListener("input", handleTyping);
+        msgInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendMessage();
+        });
+    </script>
+</body>
+</html>
