@@ -71,6 +71,7 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
     log.Printf("%s connected! Total: %d",username, clientCount)
     cs.Broadcast([]byte(fmt.Sprintf("%s joined the chat", username)), websocket.TextMessage, nil)
+    cs.Broadcast([]byte(fmt.Sprintf("+%s", username)),websocket.TextMessage,nil) // Delta: user joined
 
     // Handle messages
     for {
@@ -79,6 +80,7 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
             log.Println(username,"disconnected:", err)
             cs.removeClient(client)
             cs.Broadcast([]byte(fmt.Sprintf("%s left the chat",username)), websocket.TextMessage,client)
+            cs.Broadcast([]byte(fmt.Sprintf("-%s",username)),websocket.TextMessage,client) // Delta: user left
             return
         }
         log.Printf("Received from %s: %d bytes (type: %d)",username,len(msg),msgType)
