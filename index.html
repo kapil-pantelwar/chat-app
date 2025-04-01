@@ -57,7 +57,10 @@
         ws.onmessage = (event) => {
             if (typeof event.data === "string") {
                 const text = event.data;
-                if(text.startsWith("+")){
+                if(text.startsWith("/users ")){
+                    users = text.slice(7).split(",").filter(u=>u);
+                    updateUserList();
+                }else if(text.startsWith("+")){
                     const user = text.slice(1);
                     if(!users.includes(user)) users.push(user);
                     updateUserList();
