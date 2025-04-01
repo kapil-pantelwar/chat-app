@@ -67,8 +67,16 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
     cs.mutex.Lock()
     cs.clients[client] = true
     clientCount := len(cs.clients)
-    cs.mutex.Unlock()
+    
 
+    // Send initial user list to new client
+    var userList []string
+    for u := range cs.usernames {
+      userList = append(userList,u)
+    }
+    initialList := "/users " + strings.Join(userList,",")
+    conn.WriteMessage(websocket.TextMessage,[]byte(initialList))
+cs.mutex.Unlock()
     log.Printf("%s connected! Total: %d",username, clientCount)
     cs.Broadcast([]byte(fmt.Sprintf("%s joined the chat", username)), websocket.TextMessage, nil)
     cs.Broadcast([]byte(fmt.Sprintf("+%s", username)),websocket.TextMessage,nil) // Delta: user joined
@@ -116,7 +124,7 @@ func (cs *ChatServer) Broadcast(msg []byte, msgType int, sender *Client) {
     defer cs.mutex.Unlock()
 
     for client := range cs.clients {
-        if client == sender { // Skip sender (optional feature)
+        if client == sender { // Skip sender
             continue
         }
         if err := client.conn.WriteMessage(msgType,msg); err != nil {
