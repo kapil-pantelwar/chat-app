@@ -1,4 +1,4 @@
-# ChatSphere
+# <a href="https://kapil-pantelwar.github.io/chat-app/">ChatSphere </a>
 
 A real-time chat app built with Go and WebSockets—simple, fast, and fun! Send messages, whisper privately, see who's typing, and share images with friends.
 
