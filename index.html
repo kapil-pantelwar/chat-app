@@ -35,7 +35,9 @@
     
 
     <script>
-        const ws = new WebSocket("wss://chat-app-c5gv.onrender.com/ws");
+         const localURL = "ws://localhost:8080/ws"
+         const renderURL = "wss://chat-app-c5gv.onrender.com/ws"
+        const ws = new WebSocket(renderURL);
         ws.binaryType = "arraybuffer"; // Receive binary as ArrayBuffer
         const chatDiv = document.getElementById("chat");
         const userListDiv = document.getElementById("user-list");
@@ -57,7 +59,7 @@
                 const text = event.data;
                 if(text.startsWith("+")){
                     const user = text.slice(1);
-                    if(!user.includes(user)) users.push(user);
+                    if(!users.includes(user)) users.push(user);
                     updateUserList();
                 }else if (text.startsWith("-")) {
                     const user = text.slice(1);
