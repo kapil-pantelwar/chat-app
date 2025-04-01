@@ -3,30 +3,47 @@
 <head>
     <title>Chat App</title>
     <style>
-        #chat { border: 1px solid #ccc; padding: 10px; max-height: 400px; overflow-y: auto; }
+   body { display: flex; margin: 0; font-family: Arial, sans-serif; }
+        #sidebar { width: 150px; padding: 10px; background: #f0f0f0; border-right: 1px solid #ccc; }
+        #chat-container { flex: 1; display: flex; flex-direction: column; }
+        #chat { flex: 1; padding: 10px; max-height: 400px; overflow-y: auto; word-wrap: break-word; }
+        #input-area { padding: 10px; border-top: 1px solid #ccc; }
         p { margin: 5px 0; }
         .system { color: blue; }
         .error { color: red; }
         .typing { color: gray; font-style: italic; }
         img { max-width: 200px; margin: 5px 0; }
-    </style>
+        @media (max-width: 600px) {
+            #sidebar { display: none; }
+            #chat-container { width: 100%; }
+        }
+        </style>
 </head>
 <body>
-    <div>
-        <input id="msg" type="text" placeholder="Type a message or /pm <user> <msg>" autofocus>
-        <button onclick="sendMessage()">Send</button>
-        <input id="image" type="file" accept="image/*" onchange="sendImage()">
+    <div id="sidebar">
+        <h3>Online</h3>
+        <div id="user-list"></div>
     </div>
-    <div id="chat"></div>
+    <div id="chat-container">
+        <div id="chat"></div>
+        <div id="input-area">
+            <input id="msg" type="text" placeholder="Type a message or /pm <user> <msg>" autofocus>
+            <button onclick="sendMessage()">Send</button>
+            <input id="image" type="file" accept="image/*" onchange="sendImage()">
+        </div>
+    </div>
+    
 
     <script>
         const ws = new WebSocket("wss://chat-app-c5gv.onrender.com/ws");
         ws.binaryType = "arraybuffer"; // Receive binary as ArrayBuffer
         const chatDiv = document.getElementById("chat");
+        const userListDiv = document.getElementById("user-list");
         const msgInput = document.getElementById("msg");
         let username;
         let isTyping = false;
         let typingTimeout;
+        let users = [];
 
         ws.onopen = () => {
             username = prompt("Enter your username:") || "Anonymous";
@@ -38,7 +55,15 @@
         ws.onmessage = (event) => {
             if (typeof event.data === "string") {
                 const text = event.data;
-                if (text.includes("is typing...") || text.includes("stopped typing")) {
+                if(text.startsWith("+")){
+                    const user = text.slice(1);
+                    if(!user.includes(user)) users.push(user);
+                    updateUserList();
+                }else if (text.startsWith("-")) {
+                    const user = text.slice(1);
+                    users = users.filter(u=> u!== user);
+                    updateUserList();
+                }else if (text.includes("is typing...") || text.includes("stopped typing")) {
                     updateTypingIndicator(text);
                 } else {
                     appendMessage(text);
@@ -81,6 +106,15 @@
             p.appendChild(img);
             chatDiv.appendChild(p);
             chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        function updateUserList() {
+            userListDiv.innerHTML = "";
+            users.forEach(user=> {
+                const p = document.createElement("p");
+                p.textContent = user;
+                userListDiv.appendChild(p);
+            });
         }
 
         function updateTypingIndicator(text) {
