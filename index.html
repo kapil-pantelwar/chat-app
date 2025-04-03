@@ -161,7 +161,9 @@
     </button>
 
     <script>
-        const ws = new WebSocket("ws://localhost:8080/ws"); // Your Render URL
+        const localURL = "ws://localhost:8080/ws"
+        const renderURL = "wss://chat-app-c5gv.onrender.com/ws"
+        const ws = new WebSocket(renderURL); // Your Render URL
         ws.binaryType = "arraybuffer";
         const chatDiv = document.getElementById("chat");
         const userListDiv = document.getElementById("user-list");
