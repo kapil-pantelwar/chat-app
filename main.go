@@ -6,173 +6,241 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-// Client holds a connection and its username
+// Constants for configuration and magic strings
+const (
+	WSRoute          = "/ws"
+	ServerPort       = ":8080"
+	MaxUsernameLen   = 20
+	UsernameTimeout  = 5 * time.Second
+	TypeTextTyping   = "/typing"
+	TypeTextStop     = "/stoptyping"
+	TypeTextPM       = "/pm"
+	TypeBinaryImage  = "image"
+)
+
 type Client struct {
-  conn *websocket.Conn
-  username string
+	conn     *websocket.Conn
+	username string
 }
 
-// ChatServer manages connected clients and broadcasting
 type ChatServer struct {
-    clients    map[*Client]bool
-    usernames  map[string]bool
-    mutex      sync.Mutex // For safe concurrent access to clients
-    upgrader   websocket.Upgrader
+	clients   map[*Client]bool
+	usernames map[string]bool
+	mutex     sync.RWMutex
+	upgrader  websocket.Upgrader
 }
 
-// NewChatServer initializes a new ChatServer
 func NewChatServer() *ChatServer {
-    return &ChatServer{
-        clients: make(map[*Client]bool),
-        usernames: make(map[string]bool),
-        upgrader: websocket.Upgrader{
-            CheckOrigin: func(r *http.Request) bool { return true }, // Avoiding CORS for testing purposes...
-        },
-    }
+	return &ChatServer{
+		clients:   make(map[*Client]bool),
+		usernames: make(map[string]bool),
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true }, // TODO: Restrict in prod
+		},
+	}
 }
 
-// HandleConnection manages a single client connection
 func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
-    conn, err := cs.upgrader.Upgrade(w, r, nil) //  Handshake
-    if err != nil {
-        log.Println("Upgrade failed:", err)
-        return
-    }
-    defer conn.Close()
+	log.Printf("New connection attempt")
+	conn, err := cs.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
+		return
+	}
+	defer conn.Close()
 
-    // Get username from client
-    _, usernameBytes, err := conn.ReadMessage()
-    if err != nil {
-      log.Println("Failed to get username:", err)
-      return 
-    }
-    username := string(usernameBytes)
+	// Set read deadline for username
+	conn.SetReadDeadline(time.Now().Add(UsernameTimeout))
+	username, err := cs.authenticateUser(conn)
+	if err != nil {
+		log.Printf("Authentication failed: %v", err)
+		return
+	}
+	conn.SetReadDeadline(time.Time{}) // Reset deadline
 
-    // Register client
-    cs.mutex.Lock()
-    if cs.usernames[username] {
-      conn.WriteMessage(websocket.TextMessage,[]byte("Username taken, try again"))
-      cs.mutex.Unlock()
-      return
-    }
-    cs.usernames[username]=true
-    cs.mutex.Unlock()
-    
-    client := &Client{conn:conn,username: username}
+	client := &Client{conn: conn, username: username}
+	cs.addClient(client)
 
-    cs.mutex.Lock()
-    cs.clients[client] = true
-    clientCount := len(cs.clients)
-    
+	log.Printf("%s connected (Total: %d)", username, cs.clientCount())
+	cs.notifyUserEvent(client, "joined")
 
-    // Send initial user list to new client
-    var userList []string
-    for u := range cs.usernames {
-      userList = append(userList,u)
-    }
-    initialList := "/users " + strings.Join(userList,",")
-    conn.WriteMessage(websocket.TextMessage,[]byte(initialList))
-cs.mutex.Unlock()
-    log.Printf("%s connected! Total: %d",username, clientCount)
-    cs.Broadcast([]byte(fmt.Sprintf("%s joined the chat", username)), websocket.TextMessage, nil)
-    cs.Broadcast([]byte(fmt.Sprintf("+%s", username)),websocket.TextMessage,nil) // Delta: user joined
+	// Main message loop
+	for {
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			log.Printf("%s disconnected: %v", username, err)
+			cs.removeClient(client) // Cleanup here, no defer needed for notifications
+			return
+		}
 
-    // Handle messages
-    for {
-        msgType, msg, err := conn.ReadMessage()
-        if err != nil {
-            log.Println(username,"disconnected:", err)
-            cs.removeClient(client)
-            cs.Broadcast([]byte(fmt.Sprintf("%s left the chat",username)), websocket.TextMessage,client)
-            cs.Broadcast([]byte(fmt.Sprintf("-%s",username)),websocket.TextMessage,client) // Delta: user left
-            return
-        }
-        log.Printf("Received from %s: %d bytes (type: %d)",username,len(msg),msgType)
-  if msgType == websocket.TextMessage {
-        msgStr := string(msg)
-        log.Printf("Received from %s: %s", username, msgStr)
-          
-        if msgStr == "/typing" {
-            cs.Broadcast([]byte(fmt.Sprintf("%s is typing...", username)),websocket.TextMessage,client)
-        }else if msgStr == "/stoptyping" {
-          cs.Broadcast([]byte(fmt.Sprintf("%s stopped typing",username)), websocket.TextMessage,client)
-        }else if strings.HasPrefix(msgStr,"/pm") {
-          parts := strings.SplitN(msgStr[4:]," ",2) // Skip "/pm"
-          if len(parts) < 2 {
-            client.conn.WriteMessage(websocket.TextMessage,[]byte("Usage: /pm <username> <message>"))
-            continue
-          }
-          targetUsername, pmMsg := parts[0], parts[1]
-          cs.sendPrivateMessage(client, targetUsername, pmMsg)
-        }else {
-        fullMsg := []byte(fmt.Sprintf("%s: %s", username,msg))
-        cs.Broadcast(fullMsg, msgType, client)}
-      }else if msgType == websocket.BinaryMessage {
-        fullMsg := append([]byte(fmt.Sprintf("%s sent an image: |", username)),msg...)
-        cs.Broadcast(fullMsg,websocket.BinaryMessage,client)
-      }
-    }
+		switch msgType {
+		case websocket.TextMessage:
+			cs.handleTextMessage(client, string(msg))
+		case websocket.BinaryMessage:
+			cs.handleBinaryMessage(client, msg, TypeBinaryImage)
+		}
+	}
 }
 
-// Broadcast sends a message to all clients except the sender (if provided)
+func (cs *ChatServer) authenticateUser(conn *websocket.Conn) (string, error) {
+	_, usernameBytes, err := conn.ReadMessage()
+	if err != nil {
+		return "", fmt.Errorf("failed to read username: %v", err)
+	}
+
+	username := strings.TrimSpace(string(usernameBytes))
+	if len(username) == 0 || len(username) > MaxUsernameLen {
+		conn.WriteMessage(websocket.TextMessage, []byte("Invalid username"))
+		return "", fmt.Errorf("invalid username length")
+	}
+
+	cs.mutex.Lock()
+	defer cs.mutex.Unlock()
+	if cs.usernames[username] {
+		conn.WriteMessage(websocket.TextMessage, []byte("Username taken"))
+		return "", fmt.Errorf("username already in use")
+	}
+	cs.usernames[username] = true
+	return username, nil
+}
+
+func (cs *ChatServer) addClient(client *Client) {
+	cs.mutex.Lock()
+	cs.clients[client] = true
+	cs.mutex.Unlock()
+
+	cs.sendUserList(client)
+}
+
+func (cs *ChatServer) removeClient(client *Client) {
+	cs.mutex.Lock()
+	_, exists := cs.clients[client]
+	if !exists {
+		cs.mutex.Unlock()
+		return
+	}
+	delete(cs.clients, client)
+	delete(cs.usernames, client.username)
+	cs.mutex.Unlock()
+
+	// Notify outside lock
+	log.Printf("Removing %s", client.username)
+	cs.notifyUserEvent(client, "left")
+}
+
+func (cs *ChatServer) notifyUserEvent(client *Client, action string) {
+	cs.Broadcast([]byte(fmt.Sprintf("%s %s", client.username, action)), websocket.TextMessage, client)
+	var signal string
+	if action == "joined" {
+		signal = "+"
+	} else if action == "left" {
+		signal = "-"
+	}
+	cs.Broadcast([]byte(fmt.Sprintf("%s%s", signal, client.username)), websocket.TextMessage, client) // + or -
+}
+
+func (cs *ChatServer) handleTextMessage(client *Client, msg string) {
+	switch {
+	case msg == TypeTextTyping:
+		cs.Broadcast([]byte(fmt.Sprintf("%s is typing...", client.username)), websocket.TextMessage, client)
+	case msg == TypeTextStop:
+		cs.Broadcast([]byte(fmt.Sprintf("%s stopped typing", client.username)), websocket.TextMessage, client)
+	case strings.HasPrefix(msg, TypeTextPM):
+		cs.handlePrivateMessage(client, msg)
+	default:
+		cs.Broadcast([]byte(fmt.Sprintf("%s: %s", client.username, msg)), websocket.TextMessage, client)
+	}
+}
+
+func (cs *ChatServer) handleBinaryMessage(client *Client, data []byte, msgType string) {
+	prefix := []byte(fmt.Sprintf("%s sent %s:|", client.username, msgType))
+	cs.Broadcast(append(prefix, data...), websocket.BinaryMessage, client)
+}
+
+func (cs *ChatServer) handlePrivateMessage(sender *Client, msg string) {
+	parts := strings.SplitN(msg[4:], " ", 2)
+	if len(parts) < 2 {
+		sender.conn.WriteMessage(websocket.TextMessage, []byte("Usage: /pm <user> <message>"))
+		return
+	}
+
+	target, message := parts[0], parts[1]
+	if err := cs.sendPrivateMessage(sender, target, message); err != nil {
+		sender.conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Failed to send PM to %s", target)))
+	}
+}
+
 func (cs *ChatServer) Broadcast(msg []byte, msgType int, sender *Client) {
-    cs.mutex.Lock()
-    defer cs.mutex.Unlock()
+	cs.mutex.RLock()
+	//log.Printf("Broadcasting with RLock: %s", msg)
+	defer cs.mutex.RUnlock()
 
-    for client := range cs.clients {
-        if client == sender { // Skip sender
-            continue
-        }
-        if err := client.conn.WriteMessage(msgType,msg); err != nil {
-          log.Println("Broadcast error:", err)
-          client.conn.Close()
-          cs.removeClient(client)
-        }
-    }
+	for client := range cs.clients {
+		if client == sender {
+			continue
+		}
+		if err := client.conn.WriteMessage(msgType, msg); err != nil {
+			log.Printf("Broadcast to %s failed: %v", client.username, err)
+			client.conn.Close() // Close bad connection, let ReadMessage handle removal
+		}
+	}
 }
 
-func (cs *ChatServer) sendPrivateMessage(sender *Client, targetUsername, msg string){
-  cs.mutex.Lock()
-  defer cs.mutex.Unlock()
-  target := cs.findClientByUsername(targetUsername)
-  if target == nil {
-    sender.conn.WriteMessage(websocket.TextMessage,[]byte(fmt.Sprintf("User %s not found",targetUsername)))
-    return
-  }
-  pm := []byte(fmt.Sprintf("[PM from %s]: %s", sender.username,msg))
-  if err := target.conn.WriteMessage(websocket.TextMessage, pm); err != nil {
-    log.Println("Private message error:", err)
-    target.conn.Close()
-    cs.removeClient(target)
-  }
-  sender.conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("[PM to %s]: %s",targetUsername,msg)))
+func (cs *ChatServer) sendPrivateMessage(sender *Client, targetUsername, msg string) error {
+	cs.mutex.RLock()
+	target := cs.findClientByUsername(targetUsername)
+	cs.mutex.RUnlock()
+	if target == nil {
+		return fmt.Errorf("user %s not found", targetUsername)
+	}
+
+	pm := fmt.Sprintf("[PM from %s]: %s", sender.username, msg)
+	if err := target.conn.WriteMessage(websocket.TextMessage, []byte(pm)); err != nil {
+		return fmt.Errorf("delivery failed: %v", err)
+	}
+	sender.conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("[PM to %s]: %s", targetUsername, msg)))
+	return nil
 }
 
 func (cs *ChatServer) findClientByUsername(username string) *Client {
-  for client := range cs.clients {
-    if client.username == username {
-      return client
-    }
-  }
-  return nil
+	for client := range cs.clients {
+		if client.username == username {
+			return client
+		}
+	}
+	return nil
 }
-// removeClient safely removes a client from the map
-func (cs *ChatServer) removeClient(client *Client) {
-    cs.mutex.Lock()
-    delete(cs.clients, client)
-    delete(cs.usernames,client.username)
-    cs.mutex.Unlock()
+
+func (cs *ChatServer) sendUserList(client *Client) {
+	cs.mutex.RLock()
+	users := make([]string, 0, len(cs.usernames))
+	for u := range cs.usernames {
+		users = append(users, u)
+	}
+	cs.mutex.RUnlock()
+
+	msg := []byte("/users " + strings.Join(users, ","))
+	if err := client.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+		log.Printf("Failed to send user list to %s: %v", client.username, err)
+	}
+}
+
+func (cs *ChatServer) clientCount() int {
+	cs.mutex.RLock()
+	defer cs.mutex.RUnlock()
+	return len(cs.clients)
 }
 
 func main() {
-    server := NewChatServer()
-    http.HandleFunc("/ws", server.HandleConnection)
-    log.Println("Chat server starting on :8080...")
-    if err := http.ListenAndServe(":8080", nil); err != nil {
-        log.Fatal("Server failed:", err)
-    }
+	server := NewChatServer()
+	http.HandleFunc(WSRoute, server.HandleConnection)
+	log.Printf("ChatSphere server started on http://localhost%s", ServerPort)
+	if err := http.ListenAndServe(ServerPort, nil); err != nil {
+		log.Fatal(err)
+	}
 }

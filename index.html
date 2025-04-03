@@ -2,50 +2,190 @@
 <html lang="en">
 <head>
     <title>ChatSphere</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
     <style>
-   body { display: flex; margin: 0; font-family: Arial, sans-serif; }
-        #sidebar { width: 150px; padding: 10px; background: #f0f0f0; border-right: 1px solid #ccc; }
-        #chat-container { flex: 1; display: flex; flex-direction: column; }
-        #chat { flex: 1; padding: 10px; max-height: 400px; overflow-y: auto; word-wrap: break-word; }
-        #input-area { padding: 10px; border-top: 1px solid #ccc; }
-        p { margin: 5px 0; }
-        .system { color: blue; }
-        .error { color: red; }
-        .typing { color: gray; font-style: italic; }
-        img { max-width: 200px; margin: 5px 0; }
-        @media (max-width: 600px) {
-            #sidebar { display: none; }
-            #chat-container { width: 100%; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            display: flex;
+            font-family: 'Roboto', sans-serif;
+            transition: background 0.3s, color 0.3s;
         }
-        </style>
+        /* Light Theme (Default) */
+        body.light {
+            background: #f5f5f5;
+            color: #333;
+        }
+        body.light #sidebar {
+            background: linear-gradient(to bottom, #e8e8f0, #f5f5f5);
+        }
+        body.light #chat-container {
+            background: #fff;
+        }
+        body.light .input-area input, body.light .input-area button {
+            background: #f0f0f5;
+            border: 1px solid #ddd;
+        }
+        body.light .input-area button:hover {
+            background: #e0e0e5;
+        }
+        /* Dark Theme */
+        body.dark {
+            background: #1e1e2f;
+            color: #e0e0e0;
+        }
+        body.dark #sidebar {
+            background: linear-gradient(to bottom, #2a2a3d, #1e1e2f);
+        }
+        body.dark #chat-container {
+            background: #252537;
+        }
+        body.dark .input-area input, body.dark .input-area button {
+            background: #2a2a3d;
+            border: 1px solid #3a3a4d;
+            color: #e0e0e0;
+        }
+        body.dark .input-area button:hover {
+            background: #3a3a4d;
+        }
+        /* Layout */
+        #sidebar {
+            width: 180px;
+            padding: 15px;
+            animation: slideIn 0.5s ease-out;
+        }
+        #sidebar h3 {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            color: #7a6ff0;
+        }
+        #sidebar p {
+            font-size: 0.9em;
+            margin: 5px 0;
+        }
+        #chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin: 10px;
+        }
+        #chat {
+            flex: 1;
+            padding: 15px;
+            max-height: 500px;
+            overflow-y: auto;
+            word-wrap: break-word;
+        }
+        #chat p {
+            margin: 8px 0;
+            padding: 8px;
+            border-radius: 5px;
+            animation: fadeIn 0.3s ease-in;
+        }
+        .system { color: #7a6ff0; }
+        .error { color: #ff6b6b; }
+        .typing { color: #888; font-style: italic; }
+        img { max-width: 200px; margin: 5px 0; border-radius: 5px; }
+        .input-area {
+            padding: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        .input-area input, .input-area button {
+            padding: 8px;
+            border-radius: 5px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .input-area input {
+            flex: 1;
+            outline: none;
+        }
+        .input-area input:focus {
+            box-shadow: 0 0 5px rgba(122, 111, 240, 0.5);
+        }
+        .input-area button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        #theme-toggle {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px;
+            border: none;
+            cursor: pointer;
+            background: none;
+        }
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideIn {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(0); }
+        }
+        /* Responsive */
+        @media (max-width: 600px) {
+            body { flex-direction: column; }
+            #sidebar {
+                width: 100%;
+                padding: 10px;
+                border-bottom: 1px solid #3a3a4d;
+            }
+            #chat-container { margin: 0; box-shadow: none; }
+        }
+    </style>
 </head>
-<body>
+<body class="light">
     <div id="sidebar">
         <h3>Online</h3>
         <div id="user-list"></div>
     </div>
     <div id="chat-container">
         <div id="chat"></div>
-        <div id="input-area">
+        <div class="input-area">
             <input id="msg" type="text" placeholder="Type a message or /pm <user> <msg>" autofocus>
             <button onclick="sendMessage()">Send</button>
             <input id="image" type="file" accept="image/*" onchange="sendImage()">
         </div>
     </div>
-    
+    <button id="theme-toggle" onclick="toggleTheme()">
+        <svg id="theme-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7a6ff0" stroke-width="2">
+            <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+    </button>
 
     <script>
-         const localURL = "ws://localhost:8080/ws"
-         const renderURL = "wss://chat-app-c5gv.onrender.com/ws"
-        const ws = new WebSocket(renderURL);
-        ws.binaryType = "arraybuffer"; // Receive binary as ArrayBuffer
+        const ws = new WebSocket("ws://localhost:8080/ws"); // Your Render URL
+        ws.binaryType = "arraybuffer";
         const chatDiv = document.getElementById("chat");
         const userListDiv = document.getElementById("user-list");
         const msgInput = document.getElementById("msg");
-        let username;
-        let isTyping = false;
-        let typingTimeout;
-        let users = [];
+        let username, isTyping = false, typingTimeout, users = [];
+
+        // Theme Toggle
+        const body = document.body;
+        const themeIcon = document.getElementById("theme-icon");
+        const isDark = localStorage.getItem("theme") === "dark";
+        if (isDark) {
+            body.classList.remove("light");
+            body.classList.add("dark");
+            themeIcon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
+        }
+        function toggleTheme() {
+            body.classList.toggle("light");
+            body.classList.toggle("dark");
+            const isDarkNow = body.classList.contains("dark");
+            localStorage.setItem("theme", isDarkNow ? "dark" : "light");
+            themeIcon.innerHTML = isDarkNow
+                ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>'
+                : '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707"></path><circle cx="12" cy="12" r="3"></circle>';
+        }
 
         ws.onopen = () => {
             username = prompt("Enter your username:") || "Anonymous";
@@ -57,18 +197,18 @@
         ws.onmessage = (event) => {
             if (typeof event.data === "string") {
                 const text = event.data;
-                if(text.startsWith("/users ")){
-                    users = text.slice(7).split(",").filter(u=>u);
+                if (text.startsWith("/users ")) {
+                    users = text.slice(7).split(",").filter(u => u);
                     updateUserList();
-                }else if(text.startsWith("+")){
+                } else if (text.startsWith("+")) {
                     const user = text.slice(1);
-                    if(!users.includes(user)) users.push(user);
+                    if (!users.includes(user)) users.push(user);
                     updateUserList();
-                }else if (text.startsWith("-")) {
+                } else if (text.startsWith("-")) {
                     const user = text.slice(1);
-                    users = users.filter(u=> u!== user);
+                    users = users.filter(u => u !== user);
                     updateUserList();
-                }else if (text.includes("is typing...") || text.includes("stopped typing")) {
+                } else if (text.includes("is typing...") || text.includes("stopped typing")) {
                     updateTypingIndicator(text);
                 } else {
                     appendMessage(text);
@@ -76,19 +216,20 @@
             } else {
                 const binary = new Uint8Array(event.data);
                 const textDecoder = new TextDecoder();
-                const fullText = textDecoder.decode(binary); 
+                const fullText = textDecoder.decode(binary);
                 const delimiterIndex = fullText.indexOf("|");
-                if(delimiterIndex !== -1){
-                    const prefix = fullText.slice(0,delimiterIndex);
-                    const imageData = binary.slice(delimiterIndex+1);
-                    const blob = new Blob([imageData], {type: "image/jpeg"});
+                if (delimiterIndex !== -1) {
+                    const prefix = fullText.slice(0, delimiterIndex);
+                    const imageData = binary.slice(delimiterIndex + 1);
+                    const blob = new Blob([imageData], { type: "image/jpeg" });
                     const url = URL.createObjectURL(blob);
-                    appendImage(prefix,url);
-                }else {
-                    appendMessage("Error: Could not parse image data","error");
+                    appendImage(prefix, url);
+                } else {
+                    appendMessage("Error: Could not parse image data", "error");
                 }
             }
         };
+
         ws.onerror = () => appendMessage("Connection error!", "error");
         ws.onclose = () => appendMessage("Disconnected.", "error");
 
@@ -97,7 +238,7 @@
             p.textContent = text;
             p.className = type;
             if (type === "message" && text.startsWith(username + ": ")) {
-                p.style.color = "green";
+                p.style.background = body.classList.contains("dark") ? "#3a3a4d" : "#e0e0e5";
             }
             chatDiv.appendChild(p);
             chatDiv.scrollTop = chatDiv.scrollHeight;
@@ -115,7 +256,7 @@
 
         function updateUserList() {
             userListDiv.innerHTML = "";
-            users.forEach(user=> {
+            users.forEach(user => {
                 const p = document.createElement("p");
                 p.textContent = user;
                 userListDiv.appendChild(p);
@@ -153,14 +294,14 @@
             if (file && ws.readyState === WebSocket.OPEN) {
                 const reader = new FileReader();
                 reader.onload = () => {
-                    ws.send(reader.result); // ArrayBuffer
+                    const arrayBuffer = reader.result;
+                    ws.send(arrayBuffer); // Send to server
+                    const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
+                    const url = URL.createObjectURL(blob);
+                    appendImage(`${username} sent an image:`, url); // Local append
                 };
                 reader.readAsArrayBuffer(file);
-                const blob = new Blob([file], {type: "image/jpeg"});
-                    const url = URL.createObjectURL(blob);
-                prefix ="You sent an image:"
-                    appendImage(prefix,url);
-                fileInput.value = ""; // Clear input
+                fileInput.value = "";
             }
         }
 
