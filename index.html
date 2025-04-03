@@ -110,6 +110,10 @@
             transform: scale(1.05);
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
+        .current-user {
+            font-weight: bold;
+            color: #7a6ff0;
+        }
         #theme-toggle {
             position: fixed;
             top: 10px;
@@ -257,13 +261,16 @@
         }
 
         function updateUserList() {
-            userListDiv.innerHTML = "";
-            users.forEach(user => {
-                const p = document.createElement("p");
-                p.textContent = user;
-                userListDiv.appendChild(p);
-            });
+    userListDiv.innerHTML = "";
+    users.forEach(user => {
+        const p = document.createElement("p");
+        p.textContent = user;
+        if (user === username) {
+            p.className = "current-user";
         }
+        userListDiv.appendChild(p);
+    });
+}
 
         function updateTypingIndicator(text) {
             const usernameTyping = text.split(" ")[0];

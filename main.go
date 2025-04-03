@@ -199,6 +199,10 @@ func (cs *ChatServer) sendPrivateMessage(sender *Client, targetUsername, msg str
 		return fmt.Errorf("user %s not found", targetUsername)
 	}
 
+	if sender.username == targetUsername {
+		return fmt.Errorf("can't message yourself")
+	}
+
 	pm := fmt.Sprintf("[PM from %s]: %s", sender.username, msg)
 	if err := target.conn.WriteMessage(websocket.TextMessage, []byte(pm)); err != nil {
 		return fmt.Errorf("delivery failed: %v", err)
