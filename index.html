@@ -168,7 +168,7 @@
     <script>
         const localURL = "ws://localhost:8080/ws"
         const renderURL = "wss://chat-app-c5gv.onrender.com/ws"
-        const ws = new WebSocket(renderURL); // Your Render URL
+        const ws = new WebSocket(localURL); // Your Render URL
         ws.binaryType = "arraybuffer";
         const chatDiv = document.getElementById("chat");
         const userListDiv = document.getElementById("user-list");
@@ -213,6 +213,7 @@
                 promptUsername();
             }
         } else {
+           // username = text
             usernameSet = true;
             appendMessage("Connected as " + text,"system");
         }
@@ -258,7 +259,9 @@
     if (attempts >= 3) return; // Let server assign guest
     console.log("Prompting for username");
     username = prompt(attempts === 0 ? "Enter your username:" : "Try another username:") || "";
+   
     if (username) ws.send(username)
+    else promptUsername()
     attempts++;
   }
 
