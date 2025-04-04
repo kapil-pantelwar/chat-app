@@ -86,6 +86,7 @@
             animation: fadeIn 0.3s ease-in;
         }
         .system { color: #7a6ff0; }
+        .image {color: #33ffff; }
         .error { color: #ff6b6b; }
         .typing { color: #888; font-style: italic; }
         img { max-width: 200px; margin: 5px 0; border-radius: 5px; }
@@ -144,7 +145,7 @@
         }
     </style>
 </head>
-<body class="light">
+<body class="dark">
     <div id="sidebar">
         <h3>Online</h3>
         <div id="user-list"></div>
@@ -167,12 +168,12 @@
     <script>
         const localURL = "ws://localhost:8080/ws"
         const renderURL = "wss://chat-app-c5gv.onrender.com/ws"
-        const ws = new WebSocket(renderURL); // Your Render URL
+        const ws = new WebSocket(localURL); // Your Render URL
         ws.binaryType = "arraybuffer";
         const chatDiv = document.getElementById("chat");
         const userListDiv = document.getElementById("user-list");
         const msgInput = document.getElementById("msg");
-        let username, isTyping = false, typingTimeout, users = [];
+        let username, isTyping = false, typingTimeout, users = [], usernameSet = false, attempts = 0;
 
         // Theme Toggle
         const body = document.body;
@@ -194,47 +195,72 @@
         }
 
         ws.onopen = () => {
-            username = prompt("Enter your username:") || "Anonymous";
-            ws.send(username);
-            appendMessage("Connected as " + username, "system");
-            msgInput.focus();
-        };
+            console.log("WebSocket opened");
+            promptUsername();
+        }
 
         ws.onmessage = (event) => {
-            if (typeof event.data === "string") {
-                const text = event.data;
-                if (text.startsWith("/users ")) {
-                    users = text.slice(7).split(",").filter(u => u);
-                    updateUserList();
-                } else if (text.startsWith("+")) {
-                    const user = text.slice(1);
-                    if (!users.includes(user)) users.push(user);
-                    updateUserList();
-                } else if (text.startsWith("-")) {
-                    const user = text.slice(1);
-                    users = users.filter(u => u !== user);
-                    updateUserList();
-                } else if (text.includes("is typing...") || text.includes("stopped typing")) {
-                    updateTypingIndicator(text);
-                } else {
-                    appendMessage(text);
-                }
+    if (typeof event.data === "string") {
+       if(!usernameSet) {const text = event.data;
+        if (text.startsWith("Username ") || text.startsWith("Invalid username") || text.startsWith("Assigned username")) {
+            if (text.startsWith("Assigned username")) {
+                username = text.split(": ")[1];
+                usernameSet = true;
+                appendMessage("Connected as " + username, "system");
+                msgInput.focus();
             } else {
-                const binary = new Uint8Array(event.data);
-                const textDecoder = new TextDecoder();
-                const fullText = textDecoder.decode(binary);
-                const delimiterIndex = fullText.indexOf("|");
-                if (delimiterIndex !== -1) {
-                    const prefix = fullText.slice(0, delimiterIndex);
-                    const imageData = binary.slice(delimiterIndex + 1);
-                    const blob = new Blob([imageData], { type: "image/jpeg" });
-                    const url = URL.createObjectURL(blob);
-                    appendImage(prefix, url);
-                } else {
-                    appendMessage("Error: Could not parse image data", "error");
-                }
+                appendMessage(text, "error");
+                promptUsername();
             }
-        };
+        } else {
+            usernameSet = true;
+            appendMessage("Connected as " + text,"system");
+        }
+    } else if (usernameSet) {
+        // Existing main message handler logic
+        const text = event.data;
+        if (text.startsWith("/users ")) {
+            users = text.slice(7).split(",").filter(u => u);
+            updateUserList();
+        } else if (text.startsWith("+")) {
+            const user = text.slice(1);
+            if (!users.includes(user)) users.push(user);
+            updateUserList();
+        } else if (text.startsWith("-")) {
+            const user = text.slice(1);
+            users = users.filter(u => u !== user);
+            updateUserList();
+        } else if (text.includes("is typing...") || text.includes("stopped typing")) {
+            updateTypingIndicator(text);
+        } else {
+            appendMessage(text);
+        }}
+    } else {
+        // Handle binary (images) only after username is set
+        const binary = new Uint8Array(event.data);
+        const textDecoder = new TextDecoder();
+        const fullText = textDecoder.decode(binary);
+        const delimiterIndex = fullText.indexOf("|");
+        if (delimiterIndex !== -1) {
+            const prefix = fullText.slice(0, delimiterIndex);
+            const imageData = binary.slice(delimiterIndex + 1);
+            const blob = new Blob([imageData], { type: "image/jpeg" });
+            const url = URL.createObjectURL(blob);
+            appendImage(prefix, url);
+        } else {
+            appendMessage("Error: Could not parse image data", "error");
+        }
+    }
+};
+    
+     
+  function promptUsername() {
+    if (attempts >= 3) return; // Let server assign guest
+    console.log("Prompting for username");
+    username = prompt(attempts === 0 ? "Enter your username:" : "Try another username:") || "";
+    if (username) ws.send(username)
+    attempts++;
+  }
 
         ws.onerror = () => appendMessage("Connection error!", "error");
         ws.onclose = () => appendMessage("Disconnected.", "error");
@@ -253,6 +279,7 @@
         function appendImage(text, url) {
             const p = document.createElement("p");
             p.textContent = text;
+            p.className = "image";
             const img = document.createElement("img");
             img.src = url;
             p.appendChild(img);
@@ -307,7 +334,7 @@
                     ws.send(arrayBuffer); // Send to server
                     const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
                     const url = URL.createObjectURL(blob);
-                    appendImage(`${username} sent an image:`, url); // Local append
+                    appendImage(`You sent an image:`, url); // Local append
                 };
                 reader.readAsArrayBuffer(file);
                 fileInput.value = "";
