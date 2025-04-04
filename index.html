@@ -168,12 +168,13 @@
     <script>
         const localURL = "ws://localhost:8080/ws"
         const renderURL = "wss://chat-app-c5gv.onrender.com/ws"
-        const ws = new WebSocket(renderURL); // Your Render URL
+        const ws = new WebSocket(localURL); // Your Render URL
         ws.binaryType = "arraybuffer";
         const chatDiv = document.getElementById("chat");
         const userListDiv = document.getElementById("user-list");
         const msgInput = document.getElementById("msg");
-        let username, isTyping = false, typingTimeout, users = [], usernameSet = false, attempts = 0;
+        let username, isTyping = false, typingTimeout, users = [], usernameSet = false, attempts = 0,
+        now, hours, minutes, seconds, day, date, month, year;
 
         // Theme Toggle
         const body = document.body;
@@ -196,6 +197,8 @@
 
         ws.onopen = () => {
             console.log("WebSocket opened");
+            now = new Date();
+            appendMessage("Connected to the server | " + now, "image");
             promptUsername();
         }
 
@@ -213,9 +216,9 @@
                 promptUsername();
             }
         } else {
-           // username = text
+            username = text
             usernameSet = true;
-            appendMessage("Connected as " + text,"system");
+            appendMessage("Connected as " + username,"system");
         }
     } else if (usernameSet) {
         // Existing main message handler logic
@@ -266,7 +269,10 @@
   }
 
         ws.onerror = () => appendMessage("Connection error!", "error");
-        ws.onclose = () => appendMessage("Disconnected.", "error");
+        ws.onclose = () => {
+            now = new Date();
+            appendMessage("Disconnected... | " + now, "image");
+        }
 
         function appendMessage(text, type = "message") {
             const p = document.createElement("p");
