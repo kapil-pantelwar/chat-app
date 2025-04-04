@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,11 +18,16 @@ const (
 	WSRoute          = "/ws"
 	ServerPort       = ":8080"
 	MaxUsernameLen   = 20
-	UsernameTimeout  = 5 * time.Second
+	UsernameTimeout  = 15 * time.Second
+	UsernameAttempts = 3
 	TypeTextTyping   = "/typing"
 	TypeTextStop     = "/stoptyping"
 	TypeTextPM       = "/pm"
 	TypeBinaryImage  = "image"
+)
+
+var (
+	usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
 type Client struct {
@@ -54,16 +61,15 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Set read deadline for username
-	conn.SetReadDeadline(time.Now().Add(UsernameTimeout))
-	username, err := cs.authenticateUser(conn)
+		username, err := cs.authenticateUser(conn)
 	if err != nil {
 		log.Printf("Authentication failed: %v", err)
 		return
 	}
-	conn.SetReadDeadline(time.Time{}) // Reset deadline
+	//conn.SetReadDeadline(time.Time{}) // Reset deadline
 
 	client := &Client{conn: conn, username: username}
+	client.conn.WriteMessage(websocket.TextMessage,[]byte(username))
 	cs.addClient(client)
 
 	log.Printf("%s connected (Total: %d)", username, cs.clientCount())
@@ -88,26 +94,60 @@ func (cs *ChatServer) HandleConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cs *ChatServer) authenticateUser(conn *websocket.Conn) (string, error) {
-	_, usernameBytes, err := conn.ReadMessage()
-	if err != nil {
-		return "", fmt.Errorf("failed to read username: %v", err)
+
+	
+	readDeadline := time.Now().Add(UsernameTimeout) // Deadline time-moment
+	conn.SetReadDeadline(time.Now().Add(UsernameTimeout))
+	defer conn.SetReadDeadline(time.Time{}) //reset deadline
+	for attempts := 0; attempts < UsernameAttempts; attempts++ {
+		_, usernameBytes, err := conn.ReadMessage()
+		if err != nil {
+			if time.Now().After(readDeadline){
+				break
+			}
+			return "", fmt.Errorf("failed to read username: %v", err)
+		}
+		username := strings.ToLower(strings.TrimSpace(string(usernameBytes)))
+		if len(username) == 0 || len(username) > MaxUsernameLen {
+			conn.WriteMessage(websocket.TextMessage,[]byte("Username must be 1-20 characters"))
+			continue
+		}
+		if !usernameRegex.MatchString(username) {
+			conn.WriteMessage(websocket.TextMessage,[]byte("Invalid username (user a-z, 0-9, _, -)"))
+			continue
+		}
+
+		cs.mutex.Lock()
+		if cs.usernames[username] {
+			conn.WriteMessage(websocket.TextMessage,[]byte("Username taken, try again"))
+			cs.mutex.Unlock()
+			continue
+		}
+		cs.usernames[username] = true
+		cs.mutex.Unlock()
+		return username, nil}
+
+		return cs.assignGuestUsername(conn)
+	}
+	
+
+	func (cs *ChatServer) assignGuestUsername(conn *websocket.Conn) (string, error) {
+		cs.mutex.Lock()
+		defer cs.mutex.Unlock()
+
+	 for i:= 0; i < 10000; i++ {
+		username := fmt.Sprintf("guest%d", 1000 + rand.Intn(9000))
+		if !cs.usernames[username] {
+			cs.usernames[username] = true
+			conn.WriteMessage(websocket.TextMessage, 
+			[]byte (fmt.Sprintf("Assigned username: %s", username)))
+			return username, nil
+		}
+	 }
+	 return "", fmt.Errorf("could not assign guest username")
+
 	}
 
-	username := strings.TrimSpace(string(usernameBytes))
-	if len(username) == 0 || len(username) > MaxUsernameLen {
-		conn.WriteMessage(websocket.TextMessage, []byte("Invalid username"))
-		return "", fmt.Errorf("invalid username length")
-	}
-
-	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
-	if cs.usernames[username] {
-		conn.WriteMessage(websocket.TextMessage, []byte("Username taken"))
-		return "", fmt.Errorf("username already in use")
-	}
-	cs.usernames[username] = true
-	return username, nil
-}
 
 func (cs *ChatServer) addClient(client *Client) {
 	cs.mutex.Lock()
