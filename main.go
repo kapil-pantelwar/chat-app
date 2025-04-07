@@ -44,7 +44,7 @@ type ChatServer struct {
 
 func NewChatServer() *ChatServer {
 	allowedOrigins := map[string]bool {
-		"https://kapil-pantelwar.github.io/chat-app/": true,
+		"https://kapil-pantelwar.github.io": true,
 		"http://localhost:8080": true,
 	}
 	return &ChatServer{
