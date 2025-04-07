@@ -43,11 +43,26 @@ type ChatServer struct {
 }
 
 func NewChatServer() *ChatServer {
+	allowedOrigins := map[string]bool {
+		"https://kapil-pantelwar.github.io/chat-app/": true,
+		"http://localhost:8080": true,
+	}
 	return &ChatServer{
 		clients:   make(map[*Client]bool),
 		usernames: make(map[string]bool),
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true }, // TODO: Restrict in prod
+			CheckOrigin: func(r *http.Request) bool { 
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					log.Printf("No Origin header provided")
+					return false
+				}
+				if allowedOrigins[origin] {
+					return true
+				}
+				log.Printf("Blocked connection from unallowed origin: %s", origin)
+				return false
+			}, // TODO: Restrict in prod
 		},
 	}
 }
